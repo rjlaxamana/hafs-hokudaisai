@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, formatPrice, generateUUID, syncOrdersToCloud, MenuItem, updateStockAndSync } from './database';
+import { db, formatPrice, generateUUID, syncOrdersToCloud, MenuItem, updateStockAndSync, OrderItem } from './database';
 import { ShoppingCart, Trash2, CheckCircle2 } from 'lucide-react';
 
 export default function POS() {
@@ -112,7 +112,7 @@ export default function POS() {
     const nextNumber = lastOrder ? lastOrder.collection_number + 1 : 1;
     const total = calculateTotal();
 
-    const itemsToInsert = [];
+    const itemsToInsert: OrderItem[] = [];
     for (const [menuItemId, qty] of Object.entries(cart)) {
       itemsToInsert.push({
         id: generateUUID(),
