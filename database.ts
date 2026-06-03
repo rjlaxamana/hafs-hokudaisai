@@ -32,7 +32,7 @@ export const generateUUID = () => {
 };
 
 export const updateStockAndSync = async (itemId: string, newStock: number) => {
-  supabase.from('menu_items').update({ current_stock: newStock }).eq('id', itemId).then();
+  await supabase.from('menu_items').update({ current_stock: newStock }).eq('id', itemId);
 
   // Recalculate and sync composite Sets to ensure Supabase always has the correct Set stock
   const { data: allItems } = await supabase.from('menu_items').select('*');
@@ -57,7 +57,7 @@ export const updateStockAndSync = async (itemId: string, newStock: number) => {
       }
       const computed = minStock === Infinity ? 0 : minStock;
       if (computed !== item.current_stock) {
-        supabase.from('menu_items').update({ current_stock: computed }).eq('id', item.id).then();
+        await supabase.from('menu_items').update({ current_stock: computed }).eq('id', item.id);
       }
     }
   }

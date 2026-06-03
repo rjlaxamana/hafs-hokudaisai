@@ -6,11 +6,12 @@ import { Package } from 'lucide-react';
 export default function Stock() {
   const [menuItems, setMenuItems] = useState<MenuItem[] | undefined>();
 
+  const fetchMenu = async () => {
+    const { data } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
+    if (data) setMenuItems(data as any);
+  };
+
   useEffect(() => {
-    const fetchMenu = async () => {
-      const { data } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
-      if (data) setMenuItems(data as any);
-    };
     fetchMenu();
 
     const channel = supabase.channel('stock_changes')
@@ -41,6 +42,12 @@ export default function Stock() {
 
   const handleStockUpdate = async (item: MenuItem, newStock: number) => {
     const safeStock = Math.max(0, newStock);
+    
+    // Optimistically update UI for immediate feedback
+    if (!item.components) {
+      setMenuItems(prev => prev?.map(m => m.id === item.id ? { ...m, current_stock: safeStock } : m));
+    }
+
     if (item.components) {
       const currentComputed = getComputedStock(item);
       const diff = safeStock - currentComputed;
@@ -73,6 +80,9 @@ export default function Stock() {
     } else {
       await updateStockAndSync(item.id, safeStock);
     }
+
+    // Refetch to guarantee all related sets and base items are perfectly synced in the UI
+    await fetchMenu();
   };
 
   if (!menuItems) return <div className="p-4">Loading stock...</div>;

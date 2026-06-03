@@ -7,11 +7,12 @@ export default function POS() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({});
 
+  const fetchMenu = async () => {
+    const { data } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
+    if (data) setMenuItems(data as any);
+  };
+
   useEffect(() => {
-    const fetchMenu = async () => {
-      const { data } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
-      if (data) setMenuItems(data as any);
-    };
     fetchMenu();
 
     const channel = supabase.channel('pos_menu_changes')
@@ -176,6 +177,7 @@ export default function POS() {
     await supabase.from('order_items').insert(itemsToInsert);
 
     setCart({}); // Clear after success
+    await fetchMenu(); // Guarantee stock drops visually immediately after order
   };
 
   return (
