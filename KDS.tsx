@@ -1,56 +1,39 @@
-import { useEffect } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, syncOrdersToCloud } from './database';
+import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
 import { CheckCircle2 } from 'lucide-react';
 
 export default function KDS() {
-  // Fetch pending orders and enrich with item names
-  const pendingOrders = useLiveQuery(async () => {
-    const orders = await db.orders.where('status').equals('PENDING').sortBy('timestamp');
-    
-    return Promise.all(orders.map(async order => {
-      const items = await db.orderItems.where('order_id').equals(order.id).toArray();
-      const enrichedItems = await Promise.all(items.map(async item => {
-        const menuItem = await db.menuItems.get(item.menu_item_id);
-        return { ...item, name: menuItem?.name || 'Unknown Item' };
-      }));
-      return { ...order, items: enrichedItems };
-    }));
-  });
+  const [pendingOrders, setPendingOrders] = useState<any[] | undefined>();
 
-  // Real-time Subscription Guard
   useEffect(() => {
+    const fetchOrders = async () => {
+      const { data: orders } = await supabase.from('orders').select('*').eq('status', 'PENDING').order('timestamp', { ascending: true });
+      if (orders) {
+        const { data: menuItems } = await supabase.from('menu_items').select('*');
+        const enriched = await Promise.all(orders.map(async order => {
+          const { data: items } = await supabase.from('order_items').select('*').eq('order_id', order.id);
+          const enrichedItems = items?.map(item => {
+            const menuItem = menuItems?.find(m => m.id === item.menu_item_id);
+            return { ...item, name: menuItem?.name || 'Unknown Item' };
+          }) || [];
+          return { ...order, timestamp: new Date(order.timestamp), items: enrichedItems };
+        }));
+        setPendingOrders(enriched);
+      }
+    };
+    fetchOrders();
+
     const channel = supabase
       .channel('public:orders')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, async (payload) => {
-        const newOrder = payload.new as any;
-        // If it's a new pending order from another device, ingest it
-        if (newOrder && newOrder.id && newOrder.status === 'PENDING') {
-          const { data: items } = await supabase.from('order_items').select('*').eq('order_id', newOrder.id);
-          await db.transaction('rw', db.orders, db.orderItems, async () => {
-            await db.orders.put({
-              id: newOrder.id,
-              collection_number: newOrder.collection_number,
-              timestamp: new Date(newOrder.timestamp),
-              status: newOrder.status,
-              total_price: newOrder.total_price,
-              sync_status: 'SYNCED'
-            });
-            if (items) {
-              await db.orderItems.bulkPut(items);
-            }
-          });
-        }
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchOrders)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, fetchOrders)
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, []);
 
   const handleMarkCompleted = async (orderId: string) => {
-    await db.orders.update(orderId, { status: 'COMPLETED', sync_status: 'PENDING_SYNC' });
-    syncOrdersToCloud();
+    await supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', orderId);
   };
 
   if (!pendingOrders) return <div className="p-4">Loading queue...</div>;

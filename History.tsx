@@ -1,11 +1,34 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, formatPrice } from './database';
+import { useState, useEffect } from 'react';
+import { supabase } from './supabase';
+import { formatPrice, Order, OrderItem, MenuItem } from './database';
 import { Download, TrendingUp, Award, Clock } from 'lucide-react';
 
 export default function History() {
-  const orders = useLiveQuery(() => db.orders.orderBy('timestamp').reverse().toArray());
-  const items = useLiveQuery(() => db.orderItems.toArray());
-  const menuItems = useLiveQuery(() => db.menuItems.toArray());
+  const [orders, setOrders] = useState<Order[] | undefined>();
+  const [items, setItems] = useState<OrderItem[] | undefined>();
+  const [menuItems, setMenuItems] = useState<MenuItem[] | undefined>();
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const [{ data: o }, { data: i }, { data: m }] = await Promise.all([
+        supabase.from('orders').select('*').limit(10000).order('timestamp', { ascending: false }),
+        supabase.from('order_items').select('*').limit(50000),
+        supabase.from('menu_items').select('*')
+      ]);
+      if (o) setOrders(o.map(order => ({ ...order, timestamp: new Date(order.timestamp) })) as any);
+      if (i) setItems(i as any);
+      if (m) setMenuItems(m as any);
+    };
+
+    fetchData();
+
+    const channel = supabase.channel('history_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, fetchData)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   // Compute Statistics
   let bestSeller = { name: '-', amount: 0 };

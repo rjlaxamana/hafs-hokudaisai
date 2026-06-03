@@ -1,11 +1,25 @@
-import { useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, formatPrice, generateUUID, syncOrdersToCloud, MenuItem, updateStockAndSync, OrderItem } from './database';
+import { useState, useEffect } from 'react';
+import { supabase } from './supabase';
+import { formatPrice, generateUUID, MenuItem, updateStockAndSync, OrderItem } from './database';
 import { ShoppingCart, Trash2, CheckCircle2 } from 'lucide-react';
 
 export default function POS() {
-  const menuItems = useLiveQuery(() => db.menuItems.toArray()) || [];
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const fetchMenu = async () => {
+      const { data } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
+      if (data) setMenuItems(data as any);
+    };
+    fetchMenu();
+
+    const channel = supabase.channel('pos_menu_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, fetchMenu)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   // Compute dynamic stock for sets
   const getComputedStock = (item: MenuItem, currentCart: Record<string, number> = cart) => {
@@ -108,11 +122,13 @@ export default function POS() {
     if (Object.keys(cart).length === 0) return;
 
     const orderId = generateUUID();
-    const lastOrder = await db.orders.orderBy('collection_number').last();
+    
+    const { data: lastOrderData } = await supabase.from('orders').select('collection_number').order('collection_number', { ascending: false }).limit(1);
+    const lastOrder = lastOrderData && lastOrderData.length > 0 ? lastOrderData[0] : null;
     const nextNumber = lastOrder ? lastOrder.collection_number + 1 : 1;
     const total = calculateTotal();
 
-    const itemsToInsert: OrderItem[] = [];
+    const itemsToInsert: any[] = [];
     for (const [menuItemId, qty] of Object.entries(cart)) {
       itemsToInsert.push({
         id: generateUUID(),
@@ -122,12 +138,12 @@ export default function POS() {
       });
       
       // Cascade deduct stock instantly for composites
-      const item = await db.menuItems.get(menuItemId);
+      const item = menuItems.find(i => i.id === menuItemId);
       if (item && item.components) {
         for (const [compId, reqQty] of Object.entries(item.components)) {
           if (compId === 'ANY_JUICE') {
-            const mango = await db.menuItems.get('MANGO_ORANGE_JUICE');
-            const fourSeasons = await db.menuItems.get('FOUR_SEASONS_JUICE');
+            const mango = menuItems.find(i => i.id === 'MANGO_ORANGE_JUICE');
+            const fourSeasons = menuItems.find(i => i.id === 'FOUR_SEASONS_JUICE');
             let toDeduct = reqQty * qty;
             if (mango && mango.current_stock > 0) {
               const deductMango = Math.min(mango.current_stock, toDeduct);
@@ -139,7 +155,7 @@ export default function POS() {
               await updateStockAndSync('FOUR_SEASONS_JUICE', fourSeasons.current_stock - deductFour);
             }
           } else {
-            const compItem = await db.menuItems.get(compId);
+            const compItem = menuItems.find(i => i.id === compId);
             if (compItem) {
               await updateStockAndSync(compId, compItem.current_stock - (reqQty * qty));
             }
@@ -150,18 +166,16 @@ export default function POS() {
       }
     }
 
-    await db.orderItems.bulkAdd(itemsToInsert);
-    await db.orders.add({
+    await supabase.from('orders').insert({
       id: orderId,
       collection_number: nextNumber,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       status: 'PENDING',
-      total_price: total,
-      sync_status: 'PENDING_SYNC'
+      total_price: total
     });
+    await supabase.from('order_items').insert(itemsToInsert);
 
     setCart({}); // Clear after success
-    syncOrdersToCloud(); // Trigger background sync immediately
   };
 
   return (

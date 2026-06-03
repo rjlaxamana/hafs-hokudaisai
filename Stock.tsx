@@ -1,9 +1,24 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, formatPrice, MenuItem, updateStockAndSync } from './database';
+import { useState, useEffect } from 'react';
+import { supabase } from './supabase';
+import { formatPrice, MenuItem, updateStockAndSync } from './database';
 import { Package } from 'lucide-react';
 
 export default function Stock() {
-  const menuItems = useLiveQuery(() => db.menuItems.toArray());
+  const [menuItems, setMenuItems] = useState<MenuItem[] | undefined>();
+
+  useEffect(() => {
+    const fetchMenu = async () => {
+      const { data } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
+      if (data) setMenuItems(data as any);
+    };
+    fetchMenu();
+
+    const channel = supabase.channel('stock_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, fetchMenu)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   // Compute dynamic stock for composite items
   const getComputedStock = (item: MenuItem) => {
@@ -32,8 +47,8 @@ export default function Stock() {
       if (diff === 0) return;
       for (const [compId, reqQty] of Object.entries(item.components)) {
         if (compId === 'ANY_JUICE') {
-          const mango = await db.menuItems.get('MANGO_ORANGE_JUICE');
-          const fourSeasons = await db.menuItems.get('FOUR_SEASONS_JUICE');
+          const mango = menuItems?.find(i => i.id === 'MANGO_ORANGE_JUICE');
+          const fourSeasons = menuItems?.find(i => i.id === 'FOUR_SEASONS_JUICE');
           let toApply = diff * reqQty;
           if (toApply > 0) {
             if (mango) await updateStockAndSync('MANGO_ORANGE_JUICE', mango.current_stock + toApply);
@@ -49,7 +64,7 @@ export default function Stock() {
             }
           }
         } else {
-          const compItem = await db.menuItems.get(compId);
+          const compItem = menuItems?.find(i => i.id === compId);
           if (compItem) {
             await updateStockAndSync(compId, Math.max(0, compItem.current_stock + (diff * reqQty)));
           }
