@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, formatPrice, MenuItem } from './database';
+import { db, formatPrice, MenuItem, updateStockAndSync } from './database';
 import { Package } from 'lucide-react';
 
 export default function Stock() {
@@ -10,17 +10,54 @@ export default function Stock() {
     if (!item.components || !menuItems) return item.current_stock;
     let minStock = Infinity;
     for (const [compId, reqQty] of Object.entries(item.components)) {
-      const compItem = menuItems.find(i => i.id === compId);
-      if (compItem) {
-        minStock = Math.min(minStock, Math.floor(compItem.current_stock / reqQty));
-      } else return 0;
+      if (compId === 'ANY_JUICE') {
+        const mango = menuItems.find(i => i.id === 'MANGO_ORANGE_JUICE')?.current_stock || 0;
+        const fourSeasons = menuItems.find(i => i.id === 'FOUR_SEASONS_JUICE')?.current_stock || 0;
+        minStock = Math.min(minStock, Math.floor((mango + fourSeasons) / reqQty));
+      } else {
+        const compItem = menuItems.find(i => i.id === compId);
+        if (compItem) {
+          minStock = Math.min(minStock, Math.floor(compItem.current_stock / reqQty));
+        } else return 0;
+      }
     }
     return minStock === Infinity ? 0 : minStock;
   };
 
-  const handleStockUpdate = async (id: string, newStock: number) => {
+  const handleStockUpdate = async (item: MenuItem, newStock: number) => {
     const safeStock = Math.max(0, newStock);
-    await db.menuItems.update(id, { current_stock: safeStock });
+    if (item.components) {
+      const currentComputed = getComputedStock(item);
+      const diff = safeStock - currentComputed;
+      if (diff === 0) return;
+      for (const [compId, reqQty] of Object.entries(item.components)) {
+        if (compId === 'ANY_JUICE') {
+          const mango = await db.menuItems.get('MANGO_ORANGE_JUICE');
+          const fourSeasons = await db.menuItems.get('FOUR_SEASONS_JUICE');
+          let toApply = diff * reqQty;
+          if (toApply > 0) {
+            if (mango) await updateStockAndSync('MANGO_ORANGE_JUICE', mango.current_stock + toApply);
+          } else {
+            let toDeduct = Math.abs(toApply);
+            if (mango && mango.current_stock > 0) {
+              const deductMango = Math.min(mango.current_stock, toDeduct);
+              await updateStockAndSync('MANGO_ORANGE_JUICE', mango.current_stock - deductMango);
+              toDeduct -= deductMango;
+            }
+            if (toDeduct > 0 && fourSeasons) {
+              await updateStockAndSync('FOUR_SEASONS_JUICE', Math.max(0, fourSeasons.current_stock - toDeduct));
+            }
+          }
+        } else {
+          const compItem = await db.menuItems.get(compId);
+          if (compItem) {
+            await updateStockAndSync(compId, Math.max(0, compItem.current_stock + (diff * reqQty)));
+          }
+        }
+      }
+    } else {
+      await updateStockAndSync(item.id, safeStock);
+    }
   };
 
   if (!menuItems) return <div className="p-4">Loading stock...</div>;
@@ -55,21 +92,13 @@ export default function Stock() {
                   <td className="py-5 px-6 text-gray-600 font-medium">{formatPrice(item.price)}</td>
                   <td className="py-5 px-6">
                     <div className="flex items-center justify-center space-x-4">
-                      {isComposite ? (
-                        <span className={`text-2xl font-black w-24 text-center ${stock < 10 ? 'text-ph-red' : 'text-gray-400'}`}>
-                          {stock}
-                        </span>
-                      ) : (
-                        <>
-                          <button onClick={() => handleStockUpdate(item.id, item.current_stock - 1)} className="w-12 h-12 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center font-bold hover:bg-red-100 hover:text-ph-red transition-colors focus:ring-2 focus:ring-gray-300">
-                            -
-                          </button>
-                          <input type="number" value={item.current_stock} onChange={(e) => handleStockUpdate(item.id, parseInt(e.target.value) || 0)} className={`text-2xl font-black w-20 text-center bg-transparent border-b-2 focus:outline-none focus:border-ph-blue ${item.current_stock < 10 ? 'text-ph-red border-red-200' : 'text-gray-900 border-gray-200'}`} />
-                          <button onClick={() => handleStockUpdate(item.id, item.current_stock + 1)} className="w-12 h-12 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center font-bold hover:bg-blue-100 hover:text-ph-blue transition-colors focus:ring-2 focus:ring-gray-300">
-                            +
-                          </button>
-                        </>
-                      )}
+                      <button onClick={() => handleStockUpdate(item, stock - 1)} className="w-12 h-12 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center font-bold hover:bg-red-100 hover:text-ph-red transition-colors focus:ring-2 focus:ring-gray-300">
+                        -
+                      </button>
+                      <input type="number" value={stock} onChange={(e) => handleStockUpdate(item, parseInt(e.target.value) || 0)} className={`text-2xl font-black w-20 text-center bg-transparent border-b-2 focus:outline-none focus:border-ph-blue ${stock < 10 ? 'text-ph-red border-red-200' : 'text-gray-900 border-gray-200'}`} />
+                      <button onClick={() => handleStockUpdate(item, stock + 1)} className="w-12 h-12 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center font-bold hover:bg-blue-100 hover:text-ph-blue transition-colors focus:ring-2 focus:ring-gray-300">
+                        +
+                      </button>
                     </div>
                   </td>
                 </tr>

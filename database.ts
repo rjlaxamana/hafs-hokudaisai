@@ -53,6 +53,39 @@ export const generateUUID = () => {
   return crypto.randomUUID();
 };
 
+export const updateStockAndSync = async (itemId: string, newStock: number) => {
+  await db.menuItems.update(itemId, { current_stock: newStock });
+  // Background push to Supabase to keep inventory in sync without blocking UI
+  supabase.from('menu_items').update({ current_stock: newStock }).eq('id', itemId).then();
+
+  // Recalculate and sync composite Sets to ensure Supabase always has the correct Set stock
+  const allItems = await db.menuItems.toArray();
+  for (const item of allItems) {
+    if (item.components) {
+      let minStock = Infinity;
+      for (const [compId, reqQty] of Object.entries(item.components)) {
+        if (compId === 'ANY_JUICE') {
+          const mango = allItems.find(i => i.id === 'MANGO_ORANGE_JUICE')?.current_stock || 0;
+          const fourSeasons = allItems.find(i => i.id === 'FOUR_SEASONS_JUICE')?.current_stock || 0;
+          minStock = Math.min(minStock, Math.floor((mango + fourSeasons) / reqQty));
+        } else {
+          const compItem = allItems.find(i => i.id === compId);
+          if (compItem) {
+            minStock = Math.min(minStock, Math.floor(compItem.current_stock / reqQty));
+          } else {
+            minStock = 0;
+          }
+        }
+      }
+      const computed = minStock === Infinity ? 0 : minStock;
+      if (computed !== item.current_stock) {
+        await db.menuItems.update(item.id, { current_stock: computed });
+        supabase.from('menu_items').update({ current_stock: computed }).eq('id', item.id).then();
+      }
+    }
+  }
+};
+
 export const syncOrdersToCloud = async () => {
   // Background function to push offline orders to Supabase
   const pendingOrders = await db.orders.where('sync_status').equals('PENDING_SYNC').toArray();

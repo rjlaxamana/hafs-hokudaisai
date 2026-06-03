@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.3.1] - Inventory Logic & POS UI Fixes
+### Fixed
+- Fixed composite Set logic so adjusting a Set in the Stock tab correctly calculates and updates its underlying component items.
+- Ensured local inventory stock updates and deductions automatically synchronize to Supabase.
+- Adjusted POS item cards to display stock on the bottom-left and price on the bottom-right, and updated "Take Order" icon.
+
 ## [v0.3.0] - UI Overhaul & History Tab
 ### Added
 - Built the History tab featuring real-time "Best Seller" and "Highest Earner" analytics, alongside a client-side CSV export generator.

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, formatPrice, generateUUID, syncOrdersToCloud, MenuItem } from './database';
+import { db, formatPrice, generateUUID, syncOrdersToCloud, MenuItem, updateStockAndSync } from './database';
 import { ShoppingCart, Trash2, CheckCircle2 } from 'lucide-react';
 
 export default function POS() {
@@ -8,14 +8,76 @@ export default function POS() {
   const [cart, setCart] = useState<Record<string, number>>({});
 
   // Compute dynamic stock for sets
-  const getComputedStock = (item: MenuItem) => {
-    if (!item.components) return item.current_stock;
+  const getComputedStock = (item: MenuItem, currentCart: Record<string, number> = cart) => {
+    const getRemainingBaseStock = (baseId: string) => {
+      let baseStock = menuItems.find(i => i.id === baseId)?.current_stock || 0;
+      if (currentCart[baseId]) baseStock -= currentCart[baseId];
+
+      // Deduct from juices if ANY_JUICE is used by composite items in the cart
+      if (baseId === 'MANGO_ORANGE_JUICE' || baseId === 'FOUR_SEASONS_JUICE') {
+        let anyJuiceRequired = 0;
+        for (const [cartId, cartQty] of Object.entries(currentCart)) {
+          const cartItem = menuItems.find(i => i.id === cartId);
+          if (cartItem && cartItem.components && cartItem.components['ANY_JUICE']) {
+            anyJuiceRequired += (cartItem.components['ANY_JUICE'] * cartQty);
+          }
+        }
+        
+        if (anyJuiceRequired > 0) {
+          if (baseId === 'MANGO_ORANGE_JUICE') {
+            baseStock -= anyJuiceRequired;
+          } else if (baseId === 'FOUR_SEASONS_JUICE') {
+            const mango = menuItems.find(i => i.id === 'MANGO_ORANGE_JUICE')?.current_stock || 0;
+            const mangoCart = currentCart['MANGO_ORANGE_JUICE'] || 0;
+            const remainingMango = Math.max(0, mango - mangoCart);
+            const overflow = Math.max(0, anyJuiceRequired - remainingMango);
+            baseStock -= overflow;
+          }
+        }
+      }
+
+      for (const [cartId, cartQty] of Object.entries(currentCart)) {
+        const cartItem = menuItems.find(i => i.id === cartId);
+        if (cartItem && cartItem.components) {
+          for (const [compId, reqQty] of Object.entries(cartItem.components)) {
+            if (compId === baseId) {
+              baseStock -= (reqQty * cartQty);
+            }
+          }
+        }
+      }
+      return Math.max(0, baseStock);
+    };
+
+    const getRemainingAnyJuiceStock = () => {
+      let totalJuice = (menuItems.find(i => i.id === 'MANGO_ORANGE_JUICE')?.current_stock || 0) + 
+                       (menuItems.find(i => i.id === 'FOUR_SEASONS_JUICE')?.current_stock || 0);
+      if (currentCart['MANGO_ORANGE_JUICE']) totalJuice -= currentCart['MANGO_ORANGE_JUICE'];
+      if (currentCart['FOUR_SEASONS_JUICE']) totalJuice -= currentCart['FOUR_SEASONS_JUICE'];
+      for (const [cartId, cartQty] of Object.entries(currentCart)) {
+        const cartItem = menuItems.find(i => i.id === cartId);
+        if (cartItem && cartItem.components) {
+          for (const [compId, reqQty] of Object.entries(cartItem.components)) {
+            if (compId === 'ANY_JUICE') {
+              totalJuice -= (reqQty * cartQty);
+            }
+          }
+        }
+      }
+      return Math.max(0, totalJuice);
+    };
+
+    if (!item.components) {
+      return getRemainingBaseStock(item.id);
+    }
+
     let minStock = Infinity;
     for (const [compId, reqQty] of Object.entries(item.components)) {
-      const compItem = menuItems.find(i => i.id === compId);
-      if (compItem) {
-        minStock = Math.min(minStock, Math.floor(compItem.current_stock / reqQty));
-      } else return 0;
+      if (compId === 'ANY_JUICE') {
+        minStock = Math.min(minStock, Math.floor(getRemainingAnyJuiceStock() / reqQty));
+      } else {
+        minStock = Math.min(minStock, Math.floor(getRemainingBaseStock(compId) / reqQty));
+      }
     }
     return minStock === Infinity ? 0 : minStock;
   };
@@ -25,9 +87,9 @@ export default function POS() {
     if (!item) return;
     
     setCart(prev => {
-      const currentQty = prev[itemId] || 0;
-      if (currentQty >= getComputedStock(item)) return prev; // Prevent adding beyond computed stock
-      return { ...prev, [itemId]: currentQty + 1 };
+      const remaining = getComputedStock(item, prev);
+      if (remaining <= 0) return prev; // Prevent adding beyond computed available stock
+      return { ...prev, [itemId]: (prev[itemId] || 0) + 1 };
     });
   };
 
@@ -63,13 +125,28 @@ export default function POS() {
       const item = await db.menuItems.get(menuItemId);
       if (item && item.components) {
         for (const [compId, reqQty] of Object.entries(item.components)) {
-          const compItem = await db.menuItems.get(compId);
-          if (compItem) {
-            await db.menuItems.update(compId, { current_stock: compItem.current_stock - (reqQty * qty) });
+          if (compId === 'ANY_JUICE') {
+            const mango = await db.menuItems.get('MANGO_ORANGE_JUICE');
+            const fourSeasons = await db.menuItems.get('FOUR_SEASONS_JUICE');
+            let toDeduct = reqQty * qty;
+            if (mango && mango.current_stock > 0) {
+              const deductMango = Math.min(mango.current_stock, toDeduct);
+              await updateStockAndSync('MANGO_ORANGE_JUICE', mango.current_stock - deductMango);
+              toDeduct -= deductMango;
+            }
+            if (toDeduct > 0 && fourSeasons && fourSeasons.current_stock > 0) {
+              const deductFour = Math.min(fourSeasons.current_stock, toDeduct);
+              await updateStockAndSync('FOUR_SEASONS_JUICE', fourSeasons.current_stock - deductFour);
+            }
+          } else {
+            const compItem = await db.menuItems.get(compId);
+            if (compItem) {
+              await updateStockAndSync(compId, compItem.current_stock - (reqQty * qty));
+            }
           }
         }
       } else if (item) {
-        await db.menuItems.update(menuItemId, { current_stock: item.current_stock - qty });
+        await updateStockAndSync(menuItemId, item.current_stock - qty);
       }
     }
 
@@ -107,10 +184,10 @@ export default function POS() {
               >
                 <div className="font-bold text-lg text-ph-blue leading-tight">{item.name}</div>
                 <div className="flex justify-between items-end w-full mt-2">
-                  <div className="text-gray-700 font-semibold text-xl">{formatPrice(item.price)}</div>
                   <div className={`text-sm px-2 py-0.5 rounded-md font-bold ${stock < 10 ? 'bg-red-100 text-ph-red' : 'bg-gray-200 text-gray-600'}`}>
                     Stock: {stock}
                   </div>
+                  <div className="text-gray-700 font-semibold text-xl">{formatPrice(item.price)}</div>
                 </div>
               </button>
             );
@@ -147,7 +224,7 @@ export default function POS() {
             <CheckCircle2 size={24} /> Submit Order
           </button>
           <button onClick={handleClearCart} disabled={Object.keys(cart).length === 0} className="w-full bg-gray-100 text-gray-500 py-3 rounded-xl font-bold hover:bg-gray-200 hover:text-gray-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors">
-            <Trash2 size={18} /> Clear Cart
+            <Trash2 size={18} /> Clear
           </button>
         </div>
       </div>

@@ -3,8 +3,8 @@
 A Progressive Web App (PWA) designed to replace paper order slips at festival stalls. Built specifically to survive unstable festival network conditions using an offline-first architecture.
 
 ## Features
-- **Cashier (POS):** Fast order taking, auto-calculates total price, and assigns a sequential Collection Number.
-- **Kitchen (KDS):** Kanban-style queue for active orders.
+- **Take Order:** Fast order taking, auto-calculates total price, and assigns a sequential Collection Number.
+- **Order Board:** Kanban-style queue for active orders.
 - **Stock:** Real-time view and manual adjustment of inventory.
 - **History:** Analytics for Best Seller and Highest Earner, complete with a client-side lifetime CSV Export block.
 
