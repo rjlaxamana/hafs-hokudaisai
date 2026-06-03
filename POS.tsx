@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { formatPrice, generateUUID, MenuItem, updateStockAndSync, OrderItem } from './database';
+import { formatPrice, generateUUID, MenuItem, OrderItem } from './database';
 import { ShoppingCart, Trash2, CheckCircle2 } from 'lucide-react';
 
 export default function POS() {
@@ -130,6 +130,13 @@ export default function POS() {
     const total = calculateTotal();
 
     const itemsToInsert: any[] = [];
+    const stockUpdates: Record<string, number> = {};
+
+    const addDeduction = (id: string, amount: number) => {
+      const current = stockUpdates[id] !== undefined ? stockUpdates[id] : (menuItems.find(i => i.id === id)?.current_stock || 0);
+      stockUpdates[id] = Math.max(0, current - amount);
+    };
+
     for (const [menuItemId, qty] of Object.entries(cart)) {
       itemsToInsert.push({
         id: generateUUID(),
@@ -138,46 +145,53 @@ export default function POS() {
         quantity: qty
       });
       
-      // Cascade deduct stock instantly for composites
       const item = menuItems.find(i => i.id === menuItemId);
       if (item && item.components) {
         for (const [compId, reqQty] of Object.entries(item.components)) {
           if (compId === 'ANY_JUICE') {
-            const mango = menuItems.find(i => i.id === 'MANGO_ORANGE_JUICE');
-            const fourSeasons = menuItems.find(i => i.id === 'FOUR_SEASONS_JUICE');
+            const mango = stockUpdates['MANGO_ORANGE_JUICE'] ?? menuItems.find(i => i.id === 'MANGO_ORANGE_JUICE')?.current_stock ?? 0;
+            const fourSeasons = stockUpdates['FOUR_SEASONS_JUICE'] ?? menuItems.find(i => i.id === 'FOUR_SEASONS_JUICE')?.current_stock ?? 0;
             let toDeduct = reqQty * qty;
-            if (mango && mango.current_stock > 0) {
-              const deductMango = Math.min(mango.current_stock, toDeduct);
-              await updateStockAndSync('MANGO_ORANGE_JUICE', mango.current_stock - deductMango);
+            
+            if (mango > 0) {
+              const deductMango = Math.min(mango, toDeduct);
+              addDeduction('MANGO_ORANGE_JUICE', deductMango);
               toDeduct -= deductMango;
             }
-            if (toDeduct > 0 && fourSeasons && fourSeasons.current_stock > 0) {
-              const deductFour = Math.min(fourSeasons.current_stock, toDeduct);
-              await updateStockAndSync('FOUR_SEASONS_JUICE', fourSeasons.current_stock - deductFour);
+            if (toDeduct > 0 && fourSeasons > 0) {
+              const deductFour = Math.min(fourSeasons, toDeduct);
+              addDeduction('FOUR_SEASONS_JUICE', deductFour);
             }
           } else {
-            const compItem = menuItems.find(i => i.id === compId);
-            if (compItem) {
-              await updateStockAndSync(compId, compItem.current_stock - (reqQty * qty));
-            }
+            addDeduction(compId, reqQty * qty);
           }
         }
       } else if (item) {
-        await updateStockAndSync(menuItemId, item.current_stock - qty);
+        addDeduction(menuItemId, qty);
       }
     }
 
-    await supabase.from('orders').insert({
-      id: orderId,
-      collection_number: nextNumber,
-      timestamp: new Date().toISOString(),
-      status: 'PENDING',
-      total_price: total
-    });
-    await supabase.from('order_items').insert(itemsToInsert);
+    // Optimistically update instantly
+    setMenuItems(prev => prev.map(m => stockUpdates[m.id] !== undefined ? { ...m, current_stock: stockUpdates[m.id] } : m));
+    setCart({});
 
-    setCart({}); // Clear after success
-    await fetchMenu(); // Guarantee stock drops visually immediately after order
+    // Background sync
+    const menuItemsToUpsert = Object.entries(stockUpdates).map(([id, newStock]) => {
+      const mItem = menuItems.find(i => i.id === id);
+      return { ...mItem, current_stock: newStock };
+    }).filter(i => i.id);
+
+    Promise.all([
+      supabase.from('orders').insert({
+        id: orderId,
+        collection_number: nextNumber,
+        timestamp: new Date().toISOString(),
+        status: 'PENDING',
+        total_price: total
+      }),
+      supabase.from('order_items').insert(itemsToInsert),
+      menuItemsToUpsert.length > 0 ? supabase.from('menu_items').upsert(menuItemsToUpsert) : Promise.resolve()
+    ]).catch(console.error);
   };
 
   return (

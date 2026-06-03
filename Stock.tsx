@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { formatPrice, MenuItem, updateStockAndSync } from './database';
+import { formatPrice, MenuItem } from './database';
 import { Package } from 'lucide-react';
 
 export default function Stock() {
@@ -40,49 +40,57 @@ export default function Stock() {
     return minStock === Infinity ? 0 : minStock;
   };
 
-  const handleStockUpdate = async (item: MenuItem, newStock: number) => {
+  const handleStockUpdate = (item: MenuItem, newStock: number) => {
     const safeStock = Math.max(0, newStock);
+    const stockUpdates: Record<string, number> = {};
     
-    // Optimistically update UI for immediate feedback
-    if (!item.components) {
-      setMenuItems(prev => prev?.map(m => m.id === item.id ? { ...m, current_stock: safeStock } : m));
-    }
-
     if (item.components) {
       const currentComputed = getComputedStock(item);
       const diff = safeStock - currentComputed;
       if (diff === 0) return;
+      
       for (const [compId, reqQty] of Object.entries(item.components)) {
         if (compId === 'ANY_JUICE') {
           const mango = menuItems?.find(i => i.id === 'MANGO_ORANGE_JUICE');
           const fourSeasons = menuItems?.find(i => i.id === 'FOUR_SEASONS_JUICE');
           let toApply = diff * reqQty;
+          
           if (toApply > 0) {
-            if (mango) await updateStockAndSync('MANGO_ORANGE_JUICE', mango.current_stock + toApply);
+            if (mango) stockUpdates['MANGO_ORANGE_JUICE'] = mango.current_stock + toApply;
           } else {
             let toDeduct = Math.abs(toApply);
             if (mango && mango.current_stock > 0) {
               const deductMango = Math.min(mango.current_stock, toDeduct);
-              await updateStockAndSync('MANGO_ORANGE_JUICE', mango.current_stock - deductMango);
+              stockUpdates['MANGO_ORANGE_JUICE'] = mango.current_stock - deductMango;
               toDeduct -= deductMango;
             }
             if (toDeduct > 0 && fourSeasons) {
-              await updateStockAndSync('FOUR_SEASONS_JUICE', Math.max(0, fourSeasons.current_stock - toDeduct));
+              stockUpdates['FOUR_SEASONS_JUICE'] = Math.max(0, fourSeasons.current_stock - toDeduct);
             }
           }
         } else {
           const compItem = menuItems?.find(i => i.id === compId);
           if (compItem) {
-            await updateStockAndSync(compId, Math.max(0, compItem.current_stock + (diff * reqQty)));
+            stockUpdates[compId] = Math.max(0, compItem.current_stock + (diff * reqQty));
           }
         }
       }
     } else {
-      await updateStockAndSync(item.id, safeStock);
+      stockUpdates[item.id] = safeStock;
     }
 
-    // Refetch to guarantee all related sets and base items are perfectly synced in the UI
-    await fetchMenu();
+    // Optimistically update UI instantly
+    setMenuItems(prev => prev?.map(m => stockUpdates[m.id] !== undefined ? { ...m, current_stock: stockUpdates[m.id] } : m));
+
+    // Send bulk background update
+    const menuItemsToUpsert = Object.entries(stockUpdates).map(([id, s]) => {
+      const mItem = menuItems?.find(i => i.id === id);
+      return { ...mItem, current_stock: s };
+    }).filter(i => i.id);
+
+    if (menuItemsToUpsert.length > 0) {
+      supabase.from('menu_items').upsert(menuItemsToUpsert).then();
+    }
   };
 
   if (!menuItems) return <div className="p-4">Loading stock...</div>;
