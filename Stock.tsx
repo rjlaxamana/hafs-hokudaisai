@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabase';
 import { formatPrice, MenuItem } from './database';
-import { Package } from 'lucide-react';
+import { Package, Save } from 'lucide-react';
 
 export default function Stock() {
   const [menuItems, setMenuItems] = useState<MenuItem[] | undefined>();
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const pendingUpdates = useRef<Record<string, MenuItem>>({});
 
   const fetchMenu = async () => {
@@ -14,22 +16,23 @@ export default function Stock() {
 
   useEffect(() => {
     fetchMenu();
-    
-    const flushUpdates = () => {
-      const itemsToUpsert = Object.values(pendingUpdates.current);
-      if (itemsToUpsert.length > 0) {
-        supabase.from('menu_items').upsert(itemsToUpsert).catch(console.error);
-        pendingUpdates.current = {};
-      }
-    };
-
-    const syncInterval = setInterval(flushUpdates, 15000);
-
-    return () => {
-      clearInterval(syncInterval);
-      flushUpdates();
-    };
   }, []);
+
+  const handleSave = async () => {
+    const itemsToUpsert = Object.values(pendingUpdates.current);
+    if (itemsToUpsert.length > 0) {
+      setIsSaving(true);
+      try {
+        await supabase.from('menu_items').upsert(itemsToUpsert);
+        pendingUpdates.current = {};
+        setHasUnsavedChanges(false);
+      } catch (err) {
+        console.error('Error saving stock:', err);
+      } finally {
+        setIsSaving(false);
+      }
+    }
+  };
 
   // Compute dynamic stock for composite items
   const getComputedStock = (item: MenuItem) => {
@@ -101,17 +104,32 @@ export default function Stock() {
     menuItemsToUpsert.forEach(item => {
       pendingUpdates.current[item.id as string] = item as MenuItem;
     });
+    setHasUnsavedChanges(true);
   };
 
   if (!menuItems) return <div className="p-4">Loading stock...</div>;
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
-      <div className="px-6 py-5 border-b flex items-center gap-3 bg-gray-50">
-        <div className="w-10 h-10 rounded-lg bg-ph-blue/10 flex items-center justify-center text-ph-blue">
-          <Package size={24} />
+      <div className="px-6 py-5 border-b flex items-center justify-between bg-gray-50">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-ph-blue/10 flex items-center justify-center text-ph-blue">
+            <Package size={24} />
+          </div>
+          <h2 className="text-2xl font-black text-gray-800">Inventory Management</h2>
         </div>
-        <h2 className="text-2xl font-black text-gray-800">Inventory Management</h2>
+        <button
+          onClick={handleSave}
+          disabled={!hasUnsavedChanges || isSaving}
+          className={`px-6 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2 shadow-sm ${
+            hasUnsavedChanges && !isSaving 
+              ? 'bg-ph-blue text-white hover:bg-blue-800' 
+              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          <Save size={20} />
+          {isSaving ? 'Saving...' : 'Save Changes'}
+        </button>
       </div>
       <div className="flex-1 overflow-y-auto">
         <table className="w-full text-left border-collapse">
