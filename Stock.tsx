@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabase';
-import { formatPrice, MenuItem } from './database';
+import { formatPrice, MenuItem, recalculateCompositeStock } from './database';
 import { Package, Save } from 'lucide-react';
 
 export default function Stock() {
@@ -55,42 +55,9 @@ export default function Stock() {
 
   const handleStockUpdate = (item: MenuItem, newStock: number) => {
     const safeStock = Math.max(0, newStock);
-    const stockUpdates: Record<string, number> = {};
-    
-    if (item.components) {
-      const currentComputed = getComputedStock(item);
-      const diff = safeStock - currentComputed;
-      if (diff === 0) return;
-      
-      for (const [compId, reqQty] of Object.entries(item.components)) {
-        if (compId === 'ANY_JUICE') {
-          const mango = menuItems?.find(i => i.id === 'MANGO_ORANGE_JUICE');
-          const fourSeasons = menuItems?.find(i => i.id === 'FOUR_SEASONS_JUICE');
-          let toApply = diff * reqQty;
-          
-          if (toApply > 0) {
-            if (mango) stockUpdates['MANGO_ORANGE_JUICE'] = mango.current_stock + toApply;
-          } else {
-            let toDeduct = Math.abs(toApply);
-            if (mango && mango.current_stock > 0) {
-              const deductMango = Math.min(mango.current_stock, toDeduct);
-              stockUpdates['MANGO_ORANGE_JUICE'] = mango.current_stock - deductMango;
-              toDeduct -= deductMango;
-            }
-            if (toDeduct > 0 && fourSeasons) {
-              stockUpdates['FOUR_SEASONS_JUICE'] = Math.max(0, fourSeasons.current_stock - toDeduct);
-            }
-          }
-        } else {
-          const compItem = menuItems?.find(i => i.id === compId);
-          if (compItem) {
-            stockUpdates[compId] = Math.max(0, compItem.current_stock + (diff * reqQty));
-          }
-        }
-      }
-    } else {
-      stockUpdates[item.id] = safeStock;
-    }
+    const stockUpdates: Record<string, number> = { [item.id]: safeStock };
+
+    if (menuItems) recalculateCompositeStock(stockUpdates, menuItems);
 
     // Optimistically update UI instantly
     setMenuItems(prev => prev?.map(m => stockUpdates[m.id] !== undefined ? { ...m, current_stock: stockUpdates[m.id] } : m));

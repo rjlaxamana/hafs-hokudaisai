@@ -44,3 +44,26 @@ export const generateUUID = () => {
 export const updateStockAndSync = async (itemId: string, newStock: number) => {
   await supabase.from('menu_items').update({ current_stock: newStock }).eq('id', itemId);
 };
+
+export const recalculateCompositeStock = (
+  stockUpdates: Record<string, number>,
+  menuItems: MenuItem[]
+) => {
+  menuItems.forEach(m => {
+    if (m.components) {
+      let minStock = Infinity;
+      for (const [compId, reqQty] of Object.entries(m.components)) {
+        if (compId === 'ANY_JUICE') {
+          const mango = stockUpdates['MANGO_ORANGE_JUICE'] ?? menuItems.find(i => i.id === 'MANGO_ORANGE_JUICE')?.current_stock ?? 0;
+          const fourSeasons = stockUpdates['FOUR_SEASONS_JUICE'] ?? menuItems.find(i => i.id === 'FOUR_SEASONS_JUICE')?.current_stock ?? 0;
+          minStock = Math.min(minStock, Math.floor((mango + fourSeasons) / reqQty));
+        } else {
+          const compStock = stockUpdates[compId] ?? menuItems.find(i => i.id === compId)?.current_stock ?? 0;
+          minStock = Math.min(minStock, Math.floor(compStock / reqQty));
+        }
+      }
+      stockUpdates[m.id] = minStock === Infinity ? 0 : minStock;
+    }
+  });
+  return stockUpdates;
+};

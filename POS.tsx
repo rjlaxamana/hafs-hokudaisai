@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { formatPrice, generateUUID, MenuItem, INITIAL_MENU } from './database';
+import { formatPrice, generateUUID, MenuItem, INITIAL_MENU, recalculateCompositeStock } from './database';
 import { ShoppingCart, Trash2, CheckCircle2 } from 'lucide-react';
 
 export default function POS() {
@@ -13,6 +13,21 @@ export default function POS() {
   useEffect(() => {
     localStorage.setItem('pos_menu_items', JSON.stringify(menuItems));
   }, [menuItems]);
+
+  useEffect(() => {
+    const fetchMenu = async () => {
+      const { data } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
+      if (data) setMenuItems(data as any);
+    };
+    fetchMenu();
+
+    const channel = supabase
+      .channel('pos_menu_items')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, fetchMenu)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   // Compute dynamic stock for sets
   const getComputedStock = (item: MenuItem, currentCart: Record<string, number> = cart) => {
@@ -162,6 +177,8 @@ export default function POS() {
         addDeduction(menuItemId, qty);
       }
     }
+
+    recalculateCompositeStock(stockUpdates, menuItems);
 
     // Optimistically update instantly
     setMenuItems(prev => prev.map(m => stockUpdates[m.id] !== undefined ? { ...m, current_stock: stockUpdates[m.id] } : m));

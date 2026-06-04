@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
+import { recalculateCompositeStock } from './database';
 import { CheckCircle2, Trash2 } from 'lucide-react';
 
 export default function KDS() {
@@ -75,6 +76,8 @@ export default function KDS() {
               addRestoration(item.menu_item_id, item.quantity);
             }
           }
+
+          recalculateCompositeStock(stockUpdates, menuItems);
 
           const menuItemsToUpsert = Object.entries(stockUpdates).map(([id, newStock]) => {
             const mItem = menuItems.find(i => i.id === id);
