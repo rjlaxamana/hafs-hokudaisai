@@ -32,8 +32,9 @@ export default function KDS() {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const handleMarkCompleted = async (orderId: string) => {
-    await supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', orderId);
+  const handleMarkCompleted = (orderId: string) => {
+    setPendingOrders(prev => prev?.filter(order => order.id !== orderId));
+    supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', orderId).catch(console.error);
   };
 
   if (!pendingOrders) return <div className="p-4">Loading queue...</div>;

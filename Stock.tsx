@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabase';
 import { formatPrice, MenuItem } from './database';
 import { Package } from 'lucide-react';
 
 export default function Stock() {
   const [menuItems, setMenuItems] = useState<MenuItem[] | undefined>();
+  const pendingUpdates = useRef<Record<string, MenuItem>>({});
 
   const fetchMenu = async () => {
     const { data } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
@@ -13,12 +14,21 @@ export default function Stock() {
 
   useEffect(() => {
     fetchMenu();
+    
+    const flushUpdates = () => {
+      const itemsToUpsert = Object.values(pendingUpdates.current);
+      if (itemsToUpsert.length > 0) {
+        supabase.from('menu_items').upsert(itemsToUpsert).catch(console.error);
+        pendingUpdates.current = {};
+      }
+    };
 
-    const channel = supabase.channel('stock_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, fetchMenu)
-      .subscribe();
+    const syncInterval = setInterval(flushUpdates, 15000);
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      clearInterval(syncInterval);
+      flushUpdates();
+    };
   }, []);
 
   // Compute dynamic stock for composite items
@@ -88,9 +98,9 @@ export default function Stock() {
       return { ...mItem, current_stock: s };
     }).filter(i => i.id);
 
-    if (menuItemsToUpsert.length > 0) {
-      supabase.from('menu_items').upsert(menuItemsToUpsert).then();
-    }
+    menuItemsToUpsert.forEach(item => {
+      pendingUpdates.current[item.id as string] = item as MenuItem;
+    });
   };
 
   if (!menuItems) return <div className="p-4">Loading stock...</div>;

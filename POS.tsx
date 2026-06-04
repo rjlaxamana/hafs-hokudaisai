@@ -14,12 +14,6 @@ export default function POS() {
 
   useEffect(() => {
     fetchMenu();
-
-    const channel = supabase.channel('pos_menu_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, fetchMenu)
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
   }, []);
 
   // Compute dynamic stock for sets
