@@ -3,10 +3,10 @@
 A Progressive Web App (PWA) designed to replace paper order slips at festival stalls. Built specifically to survive unstable festival network conditions using an offline-first architecture.
 
 ## Features
-- **Take Order:** Fast order taking, auto-calculates total price, and assigns a sequential Collection Number.
-- **Order Board:** Kanban-style queue for active orders.
-- **Stock:** Real-time view and manual adjustment of inventory.
-- **History:** Analytics for Best Seller and Highest Earner, complete with a client-side lifetime CSV Export block.
+- **Take Order:** Fast order taking with instantaneous loading via local cache, auto-calculates total price, prevents out-of-stock ordering dynamically, and assigns a sequential Collection Number.
+- **Order Board:** Kanban-style queue for active orders featuring a skeuomorphic "waiter's notepad" aesthetic. Supports marking orders as done and order deletion with automatic stock restoration.
+- **Stock:** Inventory management with manual "Save Changes" synchronization and Optimistic UI. Features dynamic stock computation for composite sets (locks manual inputs for sets and auto-calculates based on base components).
+- **History:** Analytics showing Best Seller and Highest Earner, complete with a client-side lifetime CSV Export capability for the entire order history.
 
 ## Tech Stack
 - React.js (Vite)
