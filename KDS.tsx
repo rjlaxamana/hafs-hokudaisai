@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, Trash2 } from 'lucide-react';
 
 export default function KDS() {
   const [pendingOrders, setPendingOrders] = useState<any[] | undefined>();
@@ -35,6 +35,54 @@ export default function KDS() {
   const handleMarkCompleted = (orderId: string) => {
     setPendingOrders(prev => prev?.filter(order => order.id !== orderId));
     supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', orderId).catch(console.error);
+  };
+
+  const handleDeleteOrder = async (orderId: string) => {
+    const orderToDelete = pendingOrders?.find(o => o.id === orderId);
+    setPendingOrders(prev => prev?.filter(order => order.id !== orderId));
+
+    if (orderToDelete) {
+      try {
+        const { data: menuItems } = await supabase.from('menu_items').select('*');
+        if (menuItems) {
+          const stockUpdates: Record<string, number> = {};
+          const addRestoration = (id: string, amount: number) => {
+            const current = stockUpdates[id] !== undefined ? stockUpdates[id] : (menuItems.find(i => i.id === id)?.current_stock || 0);
+            stockUpdates[id] = current + amount;
+          };
+
+          for (const item of orderToDelete.items) {
+            const mItem = menuItems.find(i => i.id === item.menu_item_id);
+            if (mItem && mItem.components) {
+              for (const [compId, reqQty] of Object.entries(mItem.components)) {
+                if (compId === 'ANY_JUICE') {
+                  // Default restoration to Mango Orange Juice
+                  addRestoration('MANGO_ORANGE_JUICE', reqQty * item.quantity);
+                } else {
+                  addRestoration(compId, reqQty * item.quantity);
+                }
+              }
+            } else if (mItem) {
+              addRestoration(item.menu_item_id, item.quantity);
+            }
+          }
+
+          const menuItemsToUpsert = Object.entries(stockUpdates).map(([id, newStock]) => {
+            const mItem = menuItems.find(i => i.id === id);
+            return { ...mItem, current_stock: newStock };
+          }).filter(i => i.id);
+
+          if (menuItemsToUpsert.length > 0) {
+            await supabase.from('menu_items').upsert(menuItemsToUpsert);
+          }
+        }
+      } catch (err) {
+        console.error('Error restoring stock:', err);
+      }
+    }
+
+    supabase.from('order_items').delete().eq('order_id', orderId).then();
+    supabase.from('orders').delete().eq('id', orderId).then();
   };
 
   if (!pendingOrders) {
@@ -104,8 +152,11 @@ export default function KDS() {
                 </ul>
               </div>
             </div>
-            <div className="p-4 relative z-10">
-              <button onClick={() => handleMarkCompleted(order.id)} className="w-full bg-green-600 text-white py-4 rounded-lg font-bold text-xl hover:bg-green-700 transition-colors shadow-md flex items-center justify-center gap-2">
+            <div className="p-4 relative z-10 mt-auto flex gap-3">
+              <button onClick={() => handleDeleteOrder(order.id)} className="w-16 bg-red-100 text-red-600 py-4 rounded-lg font-bold hover:bg-red-200 transition-colors shadow-md flex items-center justify-center shrink-0" title="Delete Order">
+                <Trash2 size={24} />
+              </button>
+              <button onClick={() => handleMarkCompleted(order.id)} className="flex-1 bg-green-600 text-white py-4 rounded-lg font-bold text-xl hover:bg-green-700 transition-colors shadow-md flex items-center justify-center gap-2">
                 <CheckCircle2 size={24} /> Mark Done
               </button>
             </div>

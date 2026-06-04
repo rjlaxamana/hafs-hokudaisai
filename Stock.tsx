@@ -134,15 +134,21 @@ export default function Stock() {
                   </td>
                   <td className="py-5 px-6 text-gray-600 font-medium">{formatPrice(item.price)}</td>
                   <td className="py-5 px-6">
-                    <div className="flex items-center justify-center space-x-4">
-                      <button onClick={() => handleStockUpdate(item, stock - 1)} className="w-12 h-12 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center font-bold hover:bg-red-100 hover:text-ph-red transition-colors focus:ring-2 focus:ring-gray-300">
-                        -
-                      </button>
-                      <input type="number" value={stock} onChange={(e) => handleStockUpdate(item, parseInt(e.target.value) || 0)} className={`text-2xl font-black w-20 text-center bg-transparent border-b-2 focus:outline-none focus:border-ph-blue ${stock < 10 ? 'text-ph-red border-red-200' : 'text-gray-900 border-gray-200'}`} />
-                      <button onClick={() => handleStockUpdate(item, stock + 1)} className="w-12 h-12 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center font-bold hover:bg-blue-100 hover:text-ph-blue transition-colors focus:ring-2 focus:ring-gray-300">
-                        +
-                      </button>
-                    </div>
+                    {isComposite ? (
+                      <div className="flex items-center justify-center h-12">
+                        <span className={`text-2xl font-black ${stock < 10 ? 'text-ph-red' : 'text-gray-900'}`}>{stock}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center space-x-4">
+                        <button onClick={() => handleStockUpdate(item, stock - 1)} className="w-12 h-12 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center font-bold hover:bg-red-100 hover:text-ph-red transition-colors focus:ring-2 focus:ring-gray-300">
+                          -
+                        </button>
+                        <input type="number" value={stock} onChange={(e) => handleStockUpdate(item, parseInt(e.target.value) || 0)} className={`text-2xl font-black w-20 text-center bg-transparent border-b-2 focus:outline-none focus:border-ph-blue ${stock < 10 ? 'text-ph-red border-red-200' : 'text-gray-900 border-gray-200'}`} />
+                        <button onClick={() => handleStockUpdate(item, stock + 1)} className="w-12 h-12 rounded-xl bg-gray-100 text-gray-600 flex items-center justify-center font-bold hover:bg-blue-100 hover:text-ph-blue transition-colors focus:ring-2 focus:ring-gray-300">
+                          +
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               );
