@@ -37,7 +37,39 @@ export default function KDS() {
     supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', orderId).catch(console.error);
   };
 
-  if (!pendingOrders) return <div className="p-4">Loading queue...</div>;
+  if (!pendingOrders) {
+    return (
+      <div className="h-full overflow-x-auto whitespace-nowrap p-4 flex gap-6 pb-8">
+        {[...Array(4)].map((_, i) => (
+          <div 
+            key={i} 
+            className="w-[320px] flex-shrink-0 flex flex-col rounded-b-md shadow-2xl relative bg-[#fdfbf7] border border-gray-200 animate-pulse"
+            style={{ backgroundImage: 'linear-gradient(transparent 95%, #bae6fd 95%)', backgroundSize: '100% 2.5rem', lineHeight: '2.5rem' }}
+          >
+            <div className="h-6 w-full bg-gray-800 rounded-t-md border-b-4 border-gray-900 flex justify-evenly items-center px-4">
+              {[...Array(6)].map((_, j) => <div key={j} className="w-2 h-4 bg-gray-300/50 rounded-full"></div>)}
+            </div>
+            <div className="absolute left-10 top-6 bottom-0 w-px bg-red-400 opacity-60 z-0"></div>
+            
+            <div className="p-6 relative z-10 flex-1 flex flex-col">
+              <div className="flex justify-between items-end mb-4 border-b-2 border-gray-400 border-dashed pb-2">
+                <div className="h-8 w-20 bg-gray-300 rounded-md"></div>
+                <div className="h-4 w-12 bg-gray-300 rounded-md mb-1"></div>
+              </div>
+              <div className="space-y-6 mt-4 pl-6">
+                <div className="h-6 w-3/4 bg-gray-300 rounded-md"></div>
+                <div className="h-6 w-1/2 bg-gray-300 rounded-md"></div>
+                <div className="h-6 w-5/6 bg-gray-300 rounded-md"></div>
+              </div>
+            </div>
+            <div className="p-4 relative z-10 mt-auto">
+              <div className="w-full h-14 bg-gray-300 rounded-lg"></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-x-auto whitespace-nowrap p-4 flex gap-6 pb-8">

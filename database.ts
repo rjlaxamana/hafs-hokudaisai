@@ -23,6 +23,16 @@ export interface MenuItem {
   components?: Record<string, number>; // Maps base item ID to required quantity
 }
 
+export const INITIAL_MENU: MenuItem[] = [
+  { id: 'PORK_BBQ', name: 'Pork BBQ', price: 250, current_stock: 100 },
+  { id: 'MANGO_SAGO', name: 'Mango Sago', price: 500, current_stock: 100 },
+  { id: 'CHICKEN_ADOBO', name: 'Chicken Adobo', price: 800, current_stock: 50 },
+  { id: 'MANGO_ORANGE_JUICE', name: 'Mango Orange Juice', price: 200, current_stock: 100 },
+  { id: 'FOUR_SEASONS_JUICE', name: 'Four Seasons Juice', price: 200, current_stock: 100 },
+  { id: 'SET_A', name: 'Set A (Chicken Adobo + Juice)', price: 900, current_stock: 0, components: { CHICKEN_ADOBO: 1, ANY_JUICE: 1 } },
+  { id: 'SET_B', name: 'Set B (2 Pork BBQ + Juice)', price: 500, current_stock: 0, components: { PORK_BBQ: 2, ANY_JUICE: 1 } }
+];
+
 export const formatPrice = (price: number) => {
   return `¥${price.toLocaleString()}`;
 };

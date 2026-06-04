@@ -1,20 +1,18 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabase';
-import { formatPrice, generateUUID, MenuItem, OrderItem } from './database';
+import { formatPrice, generateUUID, MenuItem, INITIAL_MENU } from './database';
 import { ShoppingCart, Trash2, CheckCircle2 } from 'lucide-react';
 
 export default function POS() {
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(() => {
+    const saved = localStorage.getItem('pos_menu_items');
+    return saved ? JSON.parse(saved) : INITIAL_MENU;
+  });
   const [cart, setCart] = useState<Record<string, number>>({});
 
-  const fetchMenu = async () => {
-    const { data } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
-    if (data) setMenuItems(data as any);
-  };
-
   useEffect(() => {
-    fetchMenu();
-  }, []);
+    localStorage.setItem('pos_menu_items', JSON.stringify(menuItems));
+  }, [menuItems]);
 
   // Compute dynamic stock for sets
   const getComputedStock = (item: MenuItem, currentCart: Record<string, number> = cart) => {

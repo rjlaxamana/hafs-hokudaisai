@@ -4,6 +4,7 @@ import POS from './POS';
 import KDS from './KDS';
 import Stock from './Stock';
 import History from './History';
+import { INITIAL_MENU } from './database';
 import { ClipboardList, UtensilsCrossed, Package, History as HistoryIcon } from 'lucide-react';
 
 type Tab = 'POS' | 'KDS' | 'STOCK' | 'HISTORY';
@@ -16,15 +17,7 @@ function App() {
     const seedData = async () => {
       const { data: countData } = await supabase.from('menu_items').select('id');
       if (!countData || countData.length === 0) {
-        await supabase.from('menu_items').upsert([
-          { id: 'PORK_BBQ', name: 'Pork BBQ', price: 250, current_stock: 100 },
-          { id: 'MANGO_SAGO', name: 'Mango Sago', price: 500, current_stock: 100 },
-          { id: 'CHICKEN_ADOBO', name: 'Chicken Adobo', price: 800, current_stock: 50 },
-          { id: 'MANGO_ORANGE_JUICE', name: 'Mango Orange Juice', price: 200, current_stock: 100 },
-          { id: 'FOUR_SEASONS_JUICE', name: 'Four Seasons Juice', price: 200, current_stock: 100 },
-          { id: 'SET_A', name: 'Set A (Chicken Adobo + Juice)', price: 900, current_stock: 0, components: { CHICKEN_ADOBO: 1, ANY_JUICE: 1 } },
-          { id: 'SET_B', name: 'Set B (2 Pork BBQ + Juice)', price: 500, current_stock: 0, components: { PORK_BBQ: 2, ANY_JUICE: 1 } }
-        ]);
+        await supabase.from('menu_items').upsert(INITIAL_MENU);
       } else {
         supabase.from('menu_items').update({ components: { CHICKEN_ADOBO: 1, ANY_JUICE: 1 } }).eq('id', 'SET_A').then();
         supabase.from('menu_items').update({ components: { PORK_BBQ: 2, ANY_JUICE: 1 } }).eq('id', 'SET_B').then();
