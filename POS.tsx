@@ -173,17 +173,27 @@ export default function POS() {
       return { ...mItem, current_stock: newStock };
     }).filter(i => i.id);
 
-    Promise.all([
-      supabase.from('orders').insert({
-        id: orderId,
-        collection_number: nextNumber,
-        timestamp: new Date().toISOString(),
-        status: 'PENDING',
-        total_price: total
-      }),
-      supabase.from('order_items').insert(itemsToInsert),
-      menuItemsToUpsert.length > 0 ? supabase.from('menu_items').upsert(menuItemsToUpsert) : Promise.resolve()
-    ]).catch(console.error);
+    const submitToCloud = async () => {
+      try {
+        const { error: orderError } = await supabase.from('orders').insert({
+          id: orderId,
+          collection_number: nextNumber,
+          timestamp: new Date().toISOString(),
+          status: 'PENDING',
+          total_price: total
+        });
+        if (orderError) throw orderError;
+
+        await Promise.all([
+          supabase.from('order_items').insert(itemsToInsert),
+          menuItemsToUpsert.length > 0 ? supabase.from('menu_items').upsert(menuItemsToUpsert) : Promise.resolve()
+        ]);
+      } catch (err) {
+        console.error('Failed to submit order:', err);
+      }
+    };
+
+    submitToCloud();
   };
 
   return (

@@ -7,7 +7,7 @@ export default function KDS() {
 
   useEffect(() => {
     const fetchOrders = async () => {
-      const { data: orders } = await supabase.from('orders').select('*').eq('status', 'PENDING').order('timestamp', { ascending: true });
+      const { data: orders } = await supabase.from('orders').select('*').eq('status', 'PENDING').order('collection_number', { ascending: true });
       if (orders) {
         const { data: menuItems } = await supabase.from('menu_items').select('*');
         const enriched = await Promise.all(orders.map(async order => {
@@ -32,9 +32,18 @@ export default function KDS() {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const handleMarkCompleted = (orderId: string) => {
+  const handleMarkCompleted = async (orderId: string) => {
+    const previousOrders = pendingOrders;
+    // Optimistically update the UI so it feels instant
     setPendingOrders(prev => prev?.filter(order => order.id !== orderId));
-    supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', orderId).catch(console.error);
+
+    // Guarantee the sync to the database
+    const { error } = await supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', orderId);
+    
+    if (error) {
+      console.error('Failed to mark order as completed:', error);
+      setPendingOrders(previousOrders); // Revert the UI if the database sync fails
+    }
   };
 
   const handleDeleteOrder = async (orderId: string) => {
@@ -81,8 +90,8 @@ export default function KDS() {
       }
     }
 
-    supabase.from('order_items').delete().eq('order_id', orderId).then();
-    supabase.from('orders').delete().eq('id', orderId).then();
+    await supabase.from('order_items').delete().eq('order_id', orderId);
+    await supabase.from('orders').delete().eq('id', orderId);
   };
 
   if (!pendingOrders) {
